@@ -6,8 +6,9 @@ class Hamon(tk.Frame) :
     class Stone :
         r = 10
     class Tag :
-        hamon = 'hamon'
-        stone = 'stone'
+        hamon   = 'hamon'
+        stone   = 'stone'
+        hole    = 'hole'
     class Color :
         stone_normal    = '#0000ff'
         stone_enter     = '#000077'
@@ -36,15 +37,26 @@ class Hamon(tk.Frame) :
         self.fcnt = 0
         self.q = queue.PriorityQueue()
         
-        self.canvas = tk.Canvas(self, width=500, height=500)
+        self.canvas = tk.Canvas(self, width=500, height=500, background='white')
         self.backgroud = self.canvas.create_rectangle(0,0,500,500, 
                                      fill='white', width=0)
-        self.canvas.tag_bind(self.backgroud, '<Button-1>', 
-                             lambda event : self.create_stone(event.x, event.y))
+#        self.canvas.tag_bind(self.backgroud, '<Button-1>', 
+#                             lambda event : self.create_stone(event.x, event.y))
+        self.canvas.config(highlightthickness=0)
+        self.canvas.bind("<1>", lambda event: self.canvas.focus_set())
+        self.canvas.bind('<KeyPress-s>', 
+                         lambda event : self.create_stone(event.x, event.y))
+        self.canvas.bind('<KeyPress-h>', 
+                         lambda event : self.create_hole(event.x, event.y))
+                             
         text = self.canvas.create_text(250, 250, state=tk.DISABLED, 
                                        font='Helvetica', fill='grey') 
         self.canvas.itemconfig(text, text='\
-            Left click to put a stone.\n\
+            Press <S> to put a stone at cursor.\n\
+            Stone reflects Hamons and decreases by 1.\n\
+            Press <H> to put a hole at cursor.\n\
+            Hole absorbs Hamons.\n\
+            \n\
             Right click on a stone to increase its number.\n\
             Middle click on a stone to remove it.\n\
             Left click on a stone to generate a Hamon!\
@@ -82,7 +94,7 @@ class Hamon(tk.Frame) :
                 self.q.put(elem)
                 break
 #            print(elem.fcnt, elem.func)
-            elem.func()
+            elem.func(*elem.args)
         self.after(1000//self.fps, self.update)
         
             
@@ -94,9 +106,13 @@ class Hamon(tk.Frame) :
         def set_num(new_num) :
             self.canvas.itemconfig(s_info['text_num'], text=('%d'%new_num)),
             s_info['_num'] = new_num
+            if new_num == 0 :
+                self.canvas.itemconfig(stone_item, fill=Hamon.Color.stone_disabled)
+            else :
+                self.canvas.itemconfig(stone_item, fill=Hamon.Color.stone_normal)
         s_info = {
             'x': x, 'y': y, 
-            'make_hamon': lambda event=None : self.hit_stone(stone_item),
+            'make_hamon_by': lambda hamon : (self.hit_stone(stone_item) if hamon in self.hamon_info_dict else None),
             'last_hamon_fcnt': -1000,
             '_num': 1,
             'set_num': set_num,
@@ -118,7 +134,7 @@ class Hamon(tk.Frame) :
         self.stone_info_dict[stone_item] = s_info
         
         print(self.canvas.gettags(stone_item), stone_item)
-        self.canvas.tag_bind(stone_item, '<Button-1>', s_info['make_hamon'])
+        self.canvas.tag_bind(stone_item, '<Button-1>', lambda event : self.hit_stone(stone_item))
         self.canvas.tag_bind(s_info['oval_padding'], '<Button>', lambda event : None)
         self.canvas.tag_bind(stone_item, '<Button-2>', 
                              lambda event : self.delete_stone(stone_item))
@@ -136,7 +152,7 @@ class Hamon(tk.Frame) :
             fcnt = fgap + h_info['start_fcnt']
             if fcnt >= self.fcnt :
                 '''not hamons that already past the stone'''
-                self.f_after(fcnt-self.fcnt, s_info['make_hamon'])
+                self.f_after(fcnt-self.fcnt, s_info['make_hamon_by'], hamon)
         
         return stone_item
     
@@ -172,6 +188,13 @@ class Hamon(tk.Frame) :
         '''event about @stone in self.q remain untouched, 
         since deleted stone can be ignored by self.hit_stone()'''
         
+    def create_hole(self, x, y) :
+        hole = self.create_stone(x, y)
+        self.canvas.itemconfig(hole, tags=(Hamon.Tag.stone, Hamon.Tag.hole),
+                               state=tk.DISABLED, disabledfill='black')
+        self.stone_info_dict[hole]['make_hamon_by'] = lambda hamon : self.delete_hamon(hamon)
+        self.stone_info_dict[hole]['set_num'](0)
+        
     def create_hamon(self, x, y, r) :
         print('in create_hamon:', x, y, r)
         hamon = self.create_circle(x, y, r, tags=Hamon.Tag.hamon)
@@ -187,10 +210,18 @@ class Hamon(tk.Frame) :
             if gap > Hamon.Stone.r :
                 '''not itself's source stone'''
                 fgap = (gap-Hamon.Stone.r) / self.hamon_speed_perf
-                self.f_after(fgap, s_info['make_hamon'])
+                self.f_after(fgap, s_info['make_hamon_by'], hamon)
         
         print(hamon)
         return hamon
+    def delete_hamon(self, hamon) :
+        h_info = self.hamon_info_dict.get(hamon)
+        if not h_info : return
+        self.canvas.delete(hamon)
+        self.hamon_info_dict.pop(hamon)
+        '''event about @hamon in self.q remain untouched, 
+        since deleted hamon can be ignored by self.hit_stone()'''
+        
         
     def adjust_hamon_radius_by(self, hamon, dr) :
 #        print('in adjust_hamon:', hamon, dr)
